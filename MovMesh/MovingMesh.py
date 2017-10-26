@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jun 11 2015 by helio
-Modified on Tue Oct 24 2017 by filipi
+Modified on Tue Oct 26 2017 by filipi
 """
 
 import numpy as np
@@ -18,7 +18,7 @@ from timeit import default_timer as timer
 
 ## -- Propriedades
 gamma = 0.1 # RIGIDEZ DA MALHA
-
+CI='T'
 LaplacianScheme = 'linear'
 
 
@@ -168,8 +168,6 @@ def solucao():
     dPfV = np.zeros((Nfaces,3)); dPf = np.zeros((Nfaces))
     dDeltaV = np.zeros((Nneighbour,3));dDelta = np.zeros(Nneighbour)
     aNf = np.zeros(Nneighbour)
-    
-    DeslocamentoBC[:]=np.nan
 
     for i in range(Nneighbour): # loop faces internas
         o = owner[i] ; n = neighbour[i]
@@ -202,17 +200,17 @@ def solucao():
         dPfV[i] = cFace[i] - cVol[o] # distancia do centro volume ate o centro da face
         dPf[i] = np.linalg.norm(dPfV[i])
 
-    with open('./0/T', 'r') as infile:
+    with open('./0/%s' % CI, 'r') as infile:
         arquivo = infile.read()
-        arquivo = ''.join(arquivo.split()) # retira todos espacos em branco
-
+        
     for i in NameBCs:
-        my_regex1 = re.escape(i) + r"\{type(\w+)\}*"
-        my_regex2 = re.escape(i) + r"\{type\w+\;valueuniform(\w+)\}*"
+        my_regex1 = re.escape(i) + r"\s*\{\s*type\s*(\w+)\s*\}*"
+        my_regex2 = re.escape(i) + r"\s*\{\s*type\s*\w+\;\s*value\s*uniform\s*\((.+)\)"
         TipobcDic = re.findall(my_regex1, arquivo)
         TipobcDic = str(TipobcDic).strip('[\']')
-        valor = re.findall(my_regex2, arquivo, re.MULTILINE)
-        valor = str(valor).strip('[\']')
+        valor = re.findall(my_regex2, arquivo, re.MULTILINE)#le o arquivo 
+        valor = str(valor).strip('[\']')                    #converte para string  
+        valor=np.fromstring(valor, dtype=float, sep=" ")    #converte para float
         try:
             valor = float(valor)
         except:
@@ -229,7 +227,7 @@ def solucao():
         if TipobcDic == 'fixedValue':
             j = NameBCs.index(i)
             for k in range(int(startFace[j]), int(startFace[j])+int(nFaces[j])):
-                SuBC[k] = (areaFace[k] * gamma / dPf[k]) * valor
+                SuBC[k] = (areaFace[k] * gamma / dPf[k]) * valor[0]
                 SpBC[k] = -areaFace[k] * gamma / dPf[k]
 
         
@@ -242,7 +240,7 @@ def solucao():
     for i in range(len(A)):
         A[i,i] = -np.sum(A[i])-Sp[i] # aP da soma dos vizinhos
         
-    return (A, Su, OutputFacesC, DeslocamentoBC)
+    return (A, Su)
 
 #=============================================================================#
 def interpolator_corrector():
@@ -262,17 +260,17 @@ def interpolator_corrector():
             dVolO[(i)] = np.linalg.norm(cFace[i] - cVol[o]) # módulo da distância entre centros vol face e O
             OutputFaces[i,0] = (Output[o]*dVolO[i]+Output[n]*dVolN[i])/dCent[i] #interpolando o resultado para as faces
     
-    with open('./0/T', 'r') as infile:
+    with open('./0/%s' % CI, 'r') as infile:
         arquivo = infile.read()
-        arquivo = ''.join(arquivo.split()) # retira todos espacos em branco
-    
+        
     for i in NameBCs:
-            my_regex1 = re.escape(i) + r"\{type(\w+)\}*"
-            my_regex2 = re.escape(i) + r"\{type\w+\;valueuniform(\w+)\}*"
+            my_regex1 = re.escape(i) + r"\s*\{\s*type\s*(\w+)\s*\}*"
+            my_regex2 = re.escape(i) + r"\s*\{\s*type\s*\w+\;\s*value\s*uniform\s*\((.+)\)"
             TipobcDic = re.findall(my_regex1, arquivo)
             TipobcDic = str(TipobcDic).strip('[\']')
-            valor = re.findall(my_regex2, arquivo, re.MULTILINE)
-            valor = str(valor).strip('[\']')
+            valor = re.findall(my_regex2, arquivo, re.MULTILINE)#le o arquivo 
+            valor = str(valor).strip('[\']')                    #converte para string  
+            valor=np.fromstring(valor, dtype=float, sep=" ")    #converte para float
             try:
                 valor = float(valor)
             except:
@@ -290,8 +288,8 @@ def interpolator_corrector():
                 j = NameBCs.index(i)
                 for k in range(int(startFace[j]), int(startFace[j])+int(nFaces[j])):
                     o = owner[k]
-                    OutputFaces[k,0] = valor
-                    DeslocamentoBC[k,0] = valor
+                    OutputFaces[k,0] = valor[0]
+                    DeslocamentoBC[k,0] = valor[0]
     
     for i in range(Npoints): #interpolando os resultados
         k=0
@@ -370,7 +368,7 @@ print ('----------- Condições de contorno -----------\n')
 NameBCs, TipoBCs, nFaces, startFace = read_bcs_mesh()
 #=============================================================================#
 ## -- Computa a matriz dos coeficientes e vetor lado direito
-A, Su, OutputFacesC, DeslocamentoBC = solucao()
+A, Su = solucao()
 #=============================================================================#
 #=============================================================================#
 ### SOLUÇÃO DA EQUAÇÃO DE DIFUSÃO
