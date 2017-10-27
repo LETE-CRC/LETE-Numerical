@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jun 11 2015 by helio
-Modified on Tue Oct 26 2017 by filipi
+Modified on Tue Oct 27 2017 by filipi
 """
 
 import numpy as np
@@ -18,7 +18,7 @@ from timeit import default_timer as timer
 
 ## -- Propriedades
 gamma = 0.1 # RIGIDEZ DA MALHA
-CI='T'
+CI='deformation'
 LaplacianScheme = 'linear'
 
 
@@ -227,7 +227,7 @@ def solucao():
         if TipobcDic == 'fixedValue':
             j = NameBCs.index(i)
             for k in range(int(startFace[j]), int(startFace[j])+int(nFaces[j])):
-                SuBC[k] = (areaFace[k] * gamma / dPf[k]) * valor[0]
+                SuBC[k] = (areaFace[k] * gamma / dPf[k]) * valor[dim]
                 SpBC[k] = -areaFace[k] * gamma / dPf[k]
 
         
@@ -258,7 +258,7 @@ def interpolator_corrector():
             dCent[(i)] = np.linalg.norm(cVol[n] - cVol[o]) # módulo da distância entre centros vol N e O
             dVolN[(i)] = np.linalg.norm(cVol[n] - cFace[i] ) # módulo da distância entre centros vol N e face
             dVolO[(i)] = np.linalg.norm(cFace[i] - cVol[o]) # módulo da distância entre centros vol face e O
-            OutputFaces[i,0] = (Output[o]*dVolO[i]+Output[n]*dVolN[i])/dCent[i] #interpolando o resultado para as faces
+            OutputFaces[i,dim] = (Output[o]*dVolO[i]+Output[n]*dVolN[i])/dCent[i] #interpolando o resultado para as faces
     
     with open('./0/%s' % CI, 'r') as infile:
         arquivo = infile.read()
@@ -282,31 +282,31 @@ def interpolator_corrector():
                 j = NameBCs.index(i)
                 for k in range(int(startFace[j]), int(startFace[j])+int(nFaces[j])):
                     o = owner[k]
-                    OutputFaces[k,0] = Output[o]             
+                    OutputFaces[k,dim] = Output[o]             
                     
             if TipobcDic == 'fixedValue':
                 j = NameBCs.index(i)
                 for k in range(int(startFace[j]), int(startFace[j])+int(nFaces[j])):
                     o = owner[k]
-                    OutputFaces[k,0] = valor[0]
-                    DeslocamentoBC[k,0] = valor[0]
+                    OutputFaces[k,dim] = valor[dim]
+                    DeslocamentoBC[k,dim] = valor[dim]
     
     for i in range(Npoints): #interpolando os resultados
         k=0
         for j in range(Nfaces):
             if i in faces[j]:
-                DeslocamentoA[i,0]+=OutputFaces[j,0]
+                DeslocamentoA[i,dim]+=OutputFaces[j,dim]
                 k+=1
-        DeslocamentoV[i,0]=DeslocamentoA[i,0]/k
+        DeslocamentoV[i,dim]=DeslocamentoA[i,dim]/k
         
     for i in range(Nfaces): #corrigindo os resultados das BC
-        if not np.isnan(DeslocamentoBC[i,0]):
-            DeslocamentoV[int(faces[i][0]),0] = DeslocamentoBC[i,0]
-            DeslocamentoV[int(faces[i][1]),0] = DeslocamentoBC[i,0]
-            DeslocamentoV[int(faces[i][2]),0] = DeslocamentoBC[i,0]
-            DeslocamentoV[int(faces[i][3]),0] = DeslocamentoBC[i,0]
+        if not np.isnan(DeslocamentoBC[i,dim]):
+            DeslocamentoV[int(faces[i][0]),dim] = DeslocamentoBC[i,dim]
+            DeslocamentoV[int(faces[i][1]),dim] = DeslocamentoBC[i,dim]
+            DeslocamentoV[int(faces[i][2]),dim] = DeslocamentoBC[i,dim]
+            DeslocamentoV[int(faces[i][3]),dim] = DeslocamentoBC[i,dim]
         
-    return (DeslocamentoV)
+    return (DeslocamentoV[:,dim])
 
 ###############################################################################
 # ------------------------------ SOLVER --------------------------------------#
@@ -367,16 +367,16 @@ print ('----------- Condições de contorno -----------\n')
 ## -- Computa infos de condicoes de contorno
 NameBCs, TipoBCs, nFaces, startFace = read_bcs_mesh()
 #=============================================================================#
-## -- Computa a matriz dos coeficientes e vetor lado direito
-A, Su = solucao()
-#=============================================================================#
 #=============================================================================#
 ### SOLUÇÃO DA EQUAÇÃO DE DIFUSÃO
-## -- Solução do sistema linear
+ResultadoFinal = np.zeros([Npoints,3])#inicializando o vetor resultado
 StartTimeSisLin = timer()
-Solucao = bicg(A, Su)
-#Solucao = bicgstab(A, Su) #alternativa
-Output = Solucao[0]
+for dim in range(3): #loop em 3D
+    A, Su = solucao() #matriz dos coeficientes
+    Solucao = bicg(A, Su) #Solucao = bicgstab(A, Su) #alternativa
+    Output = Solucao[0] #ignorando uma parte da solução
+    ResultadoFinal[:,dim]=interpolator_corrector() #interpolando e corrigindo o resultado
+
 #tempo gasto
 TimeFinal = timer()
 WallTimeSisLin = TimeFinal - StartTimeSisLin
@@ -386,7 +386,6 @@ WallTimeMesh = timeMesh - timeFiles
 WallTimeAssembly = StartTimeSisLin - timeMesh
 #=============================================================================#
 ## -- Interpolação e correção do resultado
-ResultadoFinal=interpolator_corrector()
 #=============================================================================#
 ## -- Impressão no terminal dos resultados para conferência
 print ('Volumes: %d' %Nvolumes)
