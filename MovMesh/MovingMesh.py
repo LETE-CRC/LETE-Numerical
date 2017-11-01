@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jun 11 2015 by helio
-Modified on Tue Oct 27 2017 by filipi
+Modified on Tue Nov 01 2017 by filipi
 """
 
 import numpy as np
@@ -10,6 +10,9 @@ import re
 from scipy.sparse.linalg import bicg # bicgstab
 from timeit import default_timer as timer
 import os
+import sys
+
+np.set_printoptions(threshold=sys.maxint)
 
 #==============================================================================
 # --------------------- INPUTS E SELEÇÕES NECESSÁRIAS ------------------------#
@@ -105,7 +108,7 @@ def write_OF(varName,solution): # func que escreve resultados
     res = res.replace('  ',' ')
     res = res.replace('  ',' ')
     res = ''.join(res)
-
+    
     header = '/*--------------------------------*- C++ -*----------------------------------*\\'
     header += '\n| =========                 |                                                 |'
     header += '\n| \\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |'
@@ -131,10 +134,11 @@ def write_OF(varName,solution): # func que escreve resultados
     end += '\n'
     end += '\n'
     end += '\n// ************************************************************************* //'
-    
+
     with open(pathFinal, 'w') as outfile:
             outfile.write(header)
-            outfile.write(res)
+            for item in res:            
+                outfile.write(item)
             outfile.write(end)
 
     return ()
@@ -245,7 +249,7 @@ def solucao():
         except:
             pass
             
-        print re.escape(i),'--->', TipobcDic, '--->',valor # Mostra no terminal as condicoes de contorno
+        #print re.escape(i),'--->', TipobcDic, '--->',valor # Mostra no terminal as condicoes de contorno
         
         if TipobcDic == 'empty' or TipobcDic == 'symmetryPlane':
             j = NameBCs.index(i)
@@ -305,8 +309,6 @@ def interpolator_corrector():
             except:
                 pass
                 
-            print re.escape(i),'--->', TipobcDic, '--->',valor # Mostra no terminal as condicoes de contorno
-            
             if TipobcDic == 'empty' or TipobcDic == 'symmetryPlane':
                 j = NameBCs.index(i)
                 for k in range(int(startFace[j]), int(startFace[j])+int(nFaces[j])):
@@ -330,28 +332,28 @@ def interpolator_corrector():
         
     for i in range(Nfaces): #corrigindo os resultados das BC
         if not np.isnan(DeslocamentoBC[i,dim]):
-            DeslocamentoV[int(faces[i][0]),dim] = DeslocamentoBC[i,dim]
-            DeslocamentoV[int(faces[i][1]),dim] = DeslocamentoBC[i,dim]
-            DeslocamentoV[int(faces[i][2]),dim] = DeslocamentoBC[i,dim]
-            DeslocamentoV[int(faces[i][3]),dim] = DeslocamentoBC[i,dim]
-        
+            for j in range(len(faces[0])):        
+                DeslocamentoV[int(faces[i][j]),dim] = DeslocamentoBC[i,dim]
+            
     return (DeslocamentoV[:,dim])
 
 ###############################################################################
 # ------------------------------ SOLVER --------------------------------------#
 ###############################################################################
 
-intro = '\n============================================='
-intro += '\n============================================='
-intro += '\n------------------ MovMesh ------------------'
-intro += '\n============================================='
-intro += '\n============================================='
+intro =  '\n================================================================='
+intro += '\n================================================================='
+intro += '\n----------------------------- MovMesh ---------------------------'
+intro += '\n================================================================='
+intro += '\n================================================================='
 print (intro)
 
 StartTimeTot = timer() # contabilizador do tempo
 
 ### LEITURA DA MALHA
 ## -- Computa nós da malha
+print('Lendo arquivo de malha...')
+timeMeshB = timer()
 points, Npoints = read_file(dirMalhaPoints)
 points = np.asarray(points);points = points.astype(np.float)
 #=============================================================================#
@@ -372,32 +374,33 @@ neighbour = read_scalarlist(dirMalhaNeighbour)
 neighbour = np.asarray(neighbour);neighbour = neighbour.astype(np.int)
 Nneighbour = len(neighbour)
 #=============================================================================#
-timeFiles = timer()
-#=============================================================================#
 ## -- Computa a area (modulo e vetor) de cada face e os centros
-print(' Calculando áreas e centros das faces da malha')
 areaFace, areaFaceV, cFace = calc_mesh_faces()
 #tempo gasto
-timeA = timer()
-timeArea = timer() - timeFiles
-print("done: %f s " %timeArea)
-print(' Calculando volumes e centros dos volumes da malha')
 #=============================================================================#
 ## -- Computa o numero de volumes da malha e as coords centroides dos vols
 Nvolumes, cVol, Vol = calc_mesh_vol()
 #tempo gasto
-timeVol = timer() - timeA
-print("done: %f s " %timeVol)
-timeMesh = timer()
+timeMeshD = timer()
+WallTimeMesh = timeMeshD - timeMeshB
+print ('Leitura da malha terminada em %f segundos.' % WallTimeMesh)
+print ('-----------------------------------------------------------------')
 #=============================================================================#
 #=============================================================================#
 ### CONDIÇÕES DE CONTORNO
-print ('----------- Condições de contorno -----------\n')
+print('Lendo condições de contorno...')
+timeBCB = timer()
 ## -- Computa infos de condicoes de contorno
 NameBCs, TipoBCs, nFaces, startFace = read_bcs_mesh()
+timeBCD = timer()
+BCTime = timeBCD - timeBCB
+print ('Leitura das condições de contorno terminada em %f segundos.' % BCTime)
+print ('-----------------------------------------------------------------')
 #=============================================================================#
 #=============================================================================#
 ### SOLUÇÃO DA EQUAÇÃO DE DIFUSÃO
+print('Resolvendo o sistema linear...')
+timeSolB = timer()
 ResultadoFinal = np.zeros([Npoints,3])#inicializando o vetor resultado
 StartTimeSisLin = timer()
 for dim in range(3): #loop em 3D
@@ -405,46 +408,31 @@ for dim in range(3): #loop em 3D
     Solucao = bicg(A, Su) #Solucao = bicgstab(A, Su) #alternativa
     Output = Solucao[0] #ignorando uma parte da solução
     ResultadoFinal[:,dim]=interpolator_corrector() #interpolando e corrigindo o resultado
-
-#tempo gasto
-TimeFinal = timer()
-WallTimeSisLin = TimeFinal - StartTimeSisLin
-WallTimeTot = TimeFinal - StartTimeTot
-WallTimeFiles = timeFiles - StartTimeTot
-WallTimeMesh = timeMesh - timeFiles
-WallTimeAssembly = StartTimeSisLin - timeMesh
-#=============================================================================#
-## -- Interpolação e correção do resultado
-#=============================================================================#
-## -- Impressão no terminal dos resultados para conferência
-#print ('Volumes: %d' %Nvolumes)
-#final1 = '\n============================================='
-#final1 += '\n------------ Deformação da malha -------------\n\n'
-#final2 = '\n============================================='
-#print (final1 + str(ResultadoFinal) + final2)
-#=============================================================================#
-## - Impressão do tempo total gasto para a solução final
-print ('Tempo para leitura dos arquivos: %f segundos' % WallTimeFiles)
-print ('Tempo para cálculos da malha: %f segundos' % WallTimeMesh)
-print ('Tempo para cálculos das matrizes: %f segundos' % WallTimeAssembly)
-print ('Tempo para solucao sistema linear: %f segundos' % WallTimeSisLin)
-print ('Tempo total: %f segundos' % WallTimeTot)
+timeSolD = timer()
+timeSol = timeSolD - timeSolB
+print ('Sistema linear resolvido em %f segundos.' % timeSol)
+print ('-----------------------------------------------------------------')
 #=============================================================================#
 ## -- Escrita do arquivo de saída
+print ('Exportanto resultados...')
+ExportB = timer()
 exportar = points + ResultadoFinal
-write_OF('points', exportar)
-        
+write_OF('points', exportar)      
+ExportD = timer()
+ExportTime = ExportD - ExportB
+print ('Resultados exportados em %f segundos.' % ExportTime)
+print ('-----------------------------------------------------------------')
 #=============================================================================#
 ## -- Mensagem de aviso de fim de código
-fim = '\n============================================='
-fim += '\n============================================='
-fim += '\n------------- Código finalizado -------------'
-fim += '\n============================================='
-fim += '\n============================================='
+TimeFinal = timer()
+WallTimeTot = TimeFinal - StartTimeTot
+print ('Código finalizado em %f segundos.' % WallTimeTot)
+fim =  '================================================================='
+fim += '\n================================================================='
+fim += '\n----------------------- Código finalizado -----------------------'
+fim += '\n================================================================='
+fim += '\n================================================================='
 print (fim)
-
-
-
 #fim do código
 #=============================================================================#
 #=============================================================================#
