@@ -8,19 +8,31 @@ Modified on Tue Oct 27 2017 by filipi
 import numpy as np
 import re
 from scipy.sparse.linalg import bicg # bicgstab
-import shutil
-import os
 from timeit import default_timer as timer
+import os
 
 #==============================================================================
 # --------------------- INPUTS E SELEÇÕES NECESSÁRIAS ------------------------#
 #==============================================================================
 
 ## -- Propriedades
-gamma = 0.1 # RIGIDEZ DA MALHA
-CI='deformation'
 LaplacianScheme = 'linear'
+gamma = 0.1 # RIGIDEZ DA MALHA
+CI='deformation125' #condições iniciais
+dirInicial ='0' #pasta da condição inicial
+dirFinalr = '1/polyMesh' #diretório do output
+dirMalha = 'constant/polyMesh' #diretório das malhas
 
+#==============================================================================
+# -------------------------- CORREÇÕES DOS INPUTS ----------------------------#
+#==============================================================================
+dirInicial ='./' + dirInicial + '/' + CI
+dirFinal = './' + dirFinalr + '/'
+dirMalhaBoundary = './' + dirMalha +'/boundary'
+dirMalhaPoints = './' + dirMalha +'/points'
+dirMalhaFaces = './' + dirMalha +'/faces'
+dirMalhaOwner = './' + dirMalha +'/owner'
+dirMalhaNeighbour = './' + dirMalha +'/neighbour'
 
 ###############################################################################
 # --------------- ---------------- FUNÇÕES ---------------------------------- #
@@ -59,7 +71,7 @@ def read_scalarlist(path): # func que le arquivos de escalares (owner/neighbour)
 #=============================================================================#
 
 def read_bcs_mesh(): # funcao que le condicoes de contorno da malha do OpenFOAM
-    with open('./constant/polyMesh/boundary', 'r') as infile: # abre o arquivo a ser lido
+    with open(dirMalhaBoundary, 'r') as infile: # abre o arquivo a ser lido
         arquivo = infile.read() # le o arquivo como unica string
         arquivo = ''.join(arquivo.split()) # retira todos espacos em branco
         namebcs = re.findall(r'(\w+)\{type.\}*', arquivo) # encontra nomes das bcs
@@ -72,43 +84,60 @@ def read_bcs_mesh(): # funcao que le condicoes de contorno da malha do OpenFOAM
 #=============================================================================#
 
 def write_OF(varName,solution): # func que escreve resultados
-    '''
-    Write OpenFOAM format solution
-        varName -> the name of the variable to write
-        ex: 'T'
-        
-        solution -> the variable
-        ex: T
-    '''
-    np.set_printoptions(threshold='nan')
-    dirInicial = './0/'
-    dirFinal = './1/'
-    pathInicial = dirInicial + varName
-    pathFinal = dirFinal + varName
+
+    pathFinal = dirFinal + 'points'
     if not os.path.exists(dirFinal):
         os.makedirs(dirFinal)
-        
-    shutil.copyfile(pathInicial, pathFinal)
-    with open(pathInicial, 'r') as f:
-        data = f.readlines()
-
-    res = str(solution).replace(']', ');')
-    res = res.replace('[','(')
-    data.insert(20, res)
-    data = "".join(data)
-    with open(pathFinal, 'w') as f:
-        f.write(data)
-
-    chop = re.compile('internalField\s+uniform\s+0\;')
-    with open(pathFinal, 'r') as f:
-        data = f.read()
     
-    # chop text between #chop-begin and #chop-end
-    data_chopped = chop.sub('internalField nonuniform List<scalar>', data)
-    # save result
-    with open(pathFinal, 'w') as f:
-        f.write(data_chopped)
+    res = str(solution).replace(']', ')')
+    #correção de espaços, parentesis e pontos    
+    res = res.replace('[','(')
+    res = res.replace('((','(')
+    res = res.replace('))',')')
+    res = res.replace(' (','(')
+    res = res.replace(' )',')')
+    res = res.replace(' )',')')
+    res = res.replace('( ','(')
+    res = res.replace('( ','(')
+    res = res.replace('.)',')')
+    res = res.replace('. ',' ')
+    res = res.replace('  ',' ')
+    res = res.replace('  ',' ')
+    res = res.replace('  ',' ')
+    res = ''.join(res)
 
+    header = '/*--------------------------------*- C++ -*----------------------------------*\\'
+    header += '\n| =========                 |                                                 |'
+    header += '\n| \\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |'
+    header += '\n|  \\\    /   O peration     | Version:  5.0                                   |'
+    header += '\n|   \\\  /    A nd           | Web:      www.OpenFOAM.org                      |'
+    header += '\n|    \\\/     M anipulation  |                                                 |'
+    header += '\n\*---------------------------------------------------------------------------*/'
+    header += '\nFoamFile'
+    header += '\n{'
+    header += '\n    version     2.0;'
+    header += '\n    format      ascii;'
+    header += '\n    class       vectorField;'
+    header += '\n    location    "%s";' % dirFinalr
+    header += '\n    object      points;'
+    header += '\n}'
+    header += '\n// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //'
+    header += '\n'
+    header += '\n'
+    header += '\n%d' % Npoints
+    header += '\n(\n'
+    
+    end = '\n)'
+    end += '\n'
+    end += '\n'
+    end += '\n// ************************************************************************* //'
+    
+    with open(pathFinal, 'w') as outfile:
+            outfile.write(header)
+            outfile.write(res)
+            outfile.write(end)
+
+    return ()
 #=============================================================================#
 
 def calc_mesh_faces():
@@ -200,7 +229,7 @@ def solucao():
         dPfV[i] = cFace[i] - cVol[o] # distancia do centro volume ate o centro da face
         dPf[i] = np.linalg.norm(dPfV[i])
 
-    with open('./0/%s' % CI, 'r') as infile:
+    with open(dirInicial, 'r') as infile:
         arquivo = infile.read()
         
     for i in NameBCs:
@@ -260,7 +289,7 @@ def interpolator_corrector():
             dVolO[(i)] = np.linalg.norm(cFace[i] - cVol[o]) # módulo da distância entre centros vol face e O
             OutputFaces[i,dim] = (Output[o]*dVolO[i]+Output[n]*dVolN[i])/dCent[i] #interpolando o resultado para as faces
     
-    with open('./0/%s' % CI, 'r') as infile:
+    with open(dirInicial, 'r') as infile:
         arquivo = infile.read()
         
     for i in NameBCs:
@@ -323,23 +352,23 @@ StartTimeTot = timer() # contabilizador do tempo
 
 ### LEITURA DA MALHA
 ## -- Computa nós da malha
-points, Npoints = read_file('./constant/polyMesh/points')
+points, Npoints = read_file(dirMalhaPoints)
 points = np.asarray(points);points = points.astype(np.float)
 #=============================================================================#
 ## -- Computa faces da malha
-faces, Nfaces = read_file('./constant/polyMesh/faces')
+faces, Nfaces = read_file(dirMalhaFaces)
 
 for i in range(len(faces)): # necessario as vezes...
     faces[i] = np.array(faces[i])
     faces[i] = faces[i].astype(np.int)
 #=============================================================================#
 ## -- Computa volumes donos das faces na malha
-owner = read_scalarlist('./constant/polyMesh/owner')
+owner = read_scalarlist(dirMalhaOwner)
 owner = np.asarray(owner);owner = owner.astype(np.int)
 Nowner = len(owner)
 #=============================================================================#
 ## -- Computa volumes vizinhos das faces na malha
-neighbour = read_scalarlist('./constant/polyMesh/neighbour')
+neighbour = read_scalarlist(dirMalhaNeighbour)
 neighbour = np.asarray(neighbour);neighbour = neighbour.astype(np.int)
 Nneighbour = len(neighbour)
 #=============================================================================#
@@ -388,11 +417,11 @@ WallTimeAssembly = StartTimeSisLin - timeMesh
 ## -- Interpolação e correção do resultado
 #=============================================================================#
 ## -- Impressão no terminal dos resultados para conferência
-print ('Volumes: %d' %Nvolumes)
-final1 = '\n============================================='
-final1 += '\n----------------- Solução  ------------------\n\n'
-final2 = '\n============================================='
-print (final1 + str(ResultadoFinal) + final2)
+#print ('Volumes: %d' %Nvolumes)
+#final1 = '\n============================================='
+#final1 += '\n------------ Deformação da malha -------------\n\n'
+#final2 = '\n============================================='
+#print (final1 + str(ResultadoFinal) + final2)
 #=============================================================================#
 ## - Impressão do tempo total gasto para a solução final
 print ('Tempo para leitura dos arquivos: %f segundos' % WallTimeFiles)
@@ -402,7 +431,9 @@ print ('Tempo para solucao sistema linear: %f segundos' % WallTimeSisLin)
 print ('Tempo total: %f segundos' % WallTimeTot)
 #=============================================================================#
 ## -- Escrita do arquivo de saída
-#write_OF('T',T)
+exportar = points + ResultadoFinal
+write_OF('points', exportar)
+        
 #=============================================================================#
 ## -- Mensagem de aviso de fim de código
 fim = '\n============================================='
@@ -411,6 +442,8 @@ fim += '\n------------- Código finalizado -------------'
 fim += '\n============================================='
 fim += '\n============================================='
 print (fim)
+
+
 
 #fim do código
 #=============================================================================#
