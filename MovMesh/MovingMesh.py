@@ -17,26 +17,13 @@ np.set_printoptions(threshold=sys.maxint)
 #==============================================================================
 # --------------------- INPUTS E SELEÇÕES NECESSÁRIAS ------------------------#
 #==============================================================================
-
-## -- Propriedades
 LaplacianScheme = 'linear'
 gamma = 0.1 # RIGIDEZ DA MALHA
 CI='deformation125' #condições iniciais
-dirInicial ='0' #pasta da condição inicial
-dirFinalr = '1/polyMesh' #diretório do output
-dirMalha = 'constant/polyMesh' #diretório das malhas
-
-#==============================================================================
-# -------------------------- CORREÇÕES DOS INPUTS ----------------------------#
-#==============================================================================
-dirInicial ='./' + dirInicial + '/' + CI
-dirFinal = './' + dirFinalr + '/'
-dirMalhaBoundary = './' + dirMalha +'/boundary'
-dirMalhaPoints = './' + dirMalha +'/points'
-dirMalhaFaces = './' + dirMalha +'/faces'
-dirMalhaOwner = './' + dirMalha +'/owner'
-dirMalhaNeighbour = './' + dirMalha +'/neighbour'
-
+scalar = 'quality'
+tinitial = 0
+dt = 1
+tfinal = 2
 ###############################################################################
 # --------------- ---------------- FUNÇÕES ---------------------------------- #
 ###############################################################################
@@ -86,9 +73,9 @@ def read_bcs_mesh(): # funcao que le condicoes de contorno da malha do OpenFOAM
 
 #=============================================================================#
 
-def write_OF(varName,solution): # func que escreve resultados
+def write_OF(dirFinal,varName,solution): # func que escreve resultados
 
-    pathFinal = dirFinal + 'points'
+    pathFinal = dirFinal + varName
     if not os.path.exists(dirFinal):
         os.makedirs(dirFinal)
     
@@ -98,9 +85,6 @@ def write_OF(varName,solution): # func que escreve resultados
     res = res.replace('((','(')
     res = res.replace('))',')')
     res = res.replace(' (','(')
-    res = res.replace(' )',')')
-    res = res.replace(' )',')')
-    res = res.replace('( ','(')
     res = res.replace('( ','(')
     res = res.replace('.)',')')
     res = res.replace('. ',' ')
@@ -122,7 +106,7 @@ def write_OF(varName,solution): # func que escreve resultados
     header += '\n    format      ascii;'
     header += '\n    class       vectorField;'
     header += '\n    location    "%s";' % dirFinalr
-    header += '\n    object      points;'
+    header += '\n    object      %s;' % varName
     header += '\n}'
     header += '\n// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //'
     header += '\n'
@@ -141,6 +125,20 @@ def write_OF(varName,solution): # func que escreve resultados
                 outfile.write(item)
             outfile.write(end)
 
+    #arrumando outputs parte 1
+    with open(pathFinal) as f:
+    	newText=f.read().replace('  ', ' ')
+	
+    with open(pathFinal, "w") as f:
+  	  f.write(newText)
+
+    #arrumando outputs parte 2
+    with open(pathFinal) as f:
+    	newText=f.read().replace(' )', ')')
+	
+    with open(pathFinal, "w") as f:
+  	  f.write(newText)
+    
     return ()
 #=============================================================================#
 
@@ -276,6 +274,7 @@ def solucao():
     return (A, Su)
 
 #=============================================================================#
+
 def interpolator_corrector():
     dCent = np.zeros(Nneighbour)
     dVolN = np.zeros(Nneighbour)
@@ -337,6 +336,103 @@ def interpolator_corrector():
             
     return (DeslocamentoV[:,dim])
 
+#=============================================================================#
+
+def quality():
+    dVet = np.zeros((Nneighbour,3))
+    ortho = np.zeros(Nneighbour); avg_ortho = np.zeros(Nvolumes); min_ortho = avg_ortho
+    owner2 = np.zeros(Nneighbour); qtdFacesVol = np.zeros(Nvolumes)
+    for i in range(Nneighbour): # loop faces internas
+        o = owner[i] ; n = neighbour[i]
+        owner2[i] = owner[i]
+        dVet[i] = cVol[n] - cVol[o] # distancia entre centros vol P e N
+        ortho[i]=90-np.rad2deg(np.arccos(round(np.dot(dVet[i], areaFaceV[i])/(np.linalg.norm(dVet[i])*np.linalg.norm(areaFaceV[i])),12)))
+    for i in range(Nvolumes): # loop em todos os volumes
+        # identifica as faces que pertencem ao volume (i)
+        facesofvolumeO = np.where(owner2==i)[0]
+        # idem so que na lista neighbour pois face nomeada uma unica vez nas listas
+        facesofvolumeN = np.where(neighbour==i)[0]
+        # quantidade de faces em cada volume
+        qtdFacesVol[i] = qtdFacesVol[i] + len(facesofvolumeO) + len(facesofvolumeN)
+        # ortogonalidade média no volume
+        avg_ortho[i] = (np.sum(ortho[facesofvolumeO],0) + np.sum(ortho[facesofvolumeN],0))/qtdFacesVol[i]
+        # mínima ortogonalidade no volume
+        if (len(facesofvolumeN) == 0):
+            min_ortho[i] = np.min(ortho[facesofvolumeO])
+        elif (len(facesofvolumeO) == 0):
+           min_ortho[i] = np.min(ortho[facesofvolumeN])
+        else:
+           min_ortho_prog = np.min(ortho[facesofvolumeO]),np.min(ortho[facesofvolumeN])
+           min_ortho[i] = np.min(min_ortho_prog)
+    return (avg_ortho, min_ortho)
+
+#=============================================================================#
+def write_scalar(dirFinal,varName,solution): # func que escreve resultados
+
+    pathFinal = './' + dirFinal + '/' + varName
+    if not os.path.exists(dirFinal):
+        os.makedirs(dirFinal)
+    
+    res = str(solution).replace(']', ');')
+    #correção de espaços, parentesis e pontos    
+    res = res.replace('[','(')
+    res = res.replace('((','(')
+    res = res.replace('))',')')
+    res = res.replace(' (','(')
+    res = res.replace(' )',')')
+    res = res.replace(' )',')')
+    res = res.replace(' )',')')
+    res = res.replace('( ','(')
+    res = res.replace('( ','(')
+    res = res.replace('.)',')')
+    res = res.replace('  ',' ')
+    res = res.replace('  ',' ')
+    res = res.replace('  ',' ')
+    res = ''.join(res)
+    
+    header = '/*--------------------------------*- C++ -*----------------------------------*\\'
+    header += '\n| =========                 |                                                 |'
+    header += '\n| \\\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |'
+    header += '\n|  \\\    /   O peration     | Version:  5.0                                   |'
+    header += '\n|   \\\  /    A nd           | Web:      www.OpenFOAM.org                      |'
+    header += '\n|    \\\/     M anipulation  |                                                 |'
+    header += '\n\*---------------------------------------------------------------------------*/'
+    header += '\nFoamFile'
+    header += '\n{'
+    header += '\n    version     2.0;'
+    header += '\n    format      ascii;'
+    header += '\n    class       volScalarField;'
+    header += '\n    location    "%s";' % dirFinal
+    header += '\n    object      %s;' % varName
+    header += '\n}'
+    header += '\n// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //'
+    header += '\n'
+    header += '\ndimensions      [0 0 0 0 0 0 0];'
+    header += '\n'
+    header += '\ninternalField nonuniform List<scalar>\n%d' % Nvolumes
+    #header += '\n\n'
+    
+    end = '\n'
+    end += '\nboundaryField'
+    end += '\n{'
+    for i in range(len(NameBCs)):
+        end += '\n\t%s' % str(NameBCs[i])
+        end += '\n\t{'
+        end += '\n\t\ttype fixedValue;'
+        end += '\n\t\tvalue uniform 0;'    
+        end += '\n\t}'
+    end += '\n}'
+    end += '\n'
+    end += '\n'
+    end += '\n// ************************************************************************* //'
+
+    with open(pathFinal, 'w') as outfile:
+            outfile.write(header)
+            for item in res:            
+                outfile.write(item)
+            outfile.write(end)
+
+    return ()
 ###############################################################################
 # ------------------------------ SOLVER --------------------------------------#
 ###############################################################################
@@ -350,16 +446,132 @@ print (intro)
 
 StartTimeTot = timer() # contabilizador do tempo
 
-### LEITURA DA MALHA
+#==============================================================================
+# -------------------------- CORREÇÕES DOS INPUTS ----------------------------#
+#==============================================================================
+tnow = tinitial + dt
+dirInicial = str(tinitial)
+dirFinalr = str(tnow) + '/polyMesh'
+dirMalha = 'constant/polyMesh'
+dirInicial ='./' + dirInicial + '/' + CI
+dirFinal = './' + dirFinalr + '/'
+dirMalhaBoundary = './' + dirMalha +'/boundary'
+dirMalhaPoints = './' + dirMalha + '/points'
+dirMalhaFaces = './' + dirMalha +'/faces'
+dirMalhaOwner = './' + dirMalha +'/owner'
+dirMalhaNeighbour = './' + dirMalha +'/neighbour'
+#=============================================================================#
+while tinitial < tfinal:
+    ### LEITURA DA MALHA E DAS CONDIÇÕES DE CONTORNO
+    ## -- Computa nós da malha
+    print('TIMESTEP = %f' % tnow)
+    print('Lendo arquivo de malha...')
+    timeMeshB = timer()
+    points, Npoints = read_file(dirMalhaPoints)
+    points = np.asarray(points)
+    points = np.array(points, dtype=float)
+    #=============================================================================#
+    ## -- Computa faces da malha
+    faces, Nfaces = read_file(dirMalhaFaces)
+    
+    for i in range(len(faces)): # necessario as vezes...
+        faces[i] = np.array(faces[i])
+        faces[i] = faces[i].astype(np.int)
+    #=============================================================================#
+    ## -- Computa volumes donos das faces na malha
+    owner = read_scalarlist(dirMalhaOwner)
+    owner = np.asarray(owner);owner = owner.astype(np.int)
+    Nowner = len(owner)
+    #=============================================================================#
+    ## -- Computa volumes vizinhos das faces na malha
+    neighbour = read_scalarlist(dirMalhaNeighbour)
+    neighbour = np.asarray(neighbour);neighbour = neighbour.astype(np.int)
+    Nneighbour = len(neighbour)
+    #=============================================================================#
+    ## -- Computa a area (modulo e vetor) de cada face e os centros
+    areaFace, areaFaceV, cFace = calc_mesh_faces()
+    #tempo gasto
+    #=============================================================================#
+    ## -- Computa o numero de volumes da malha e as coords centroides dos vols
+    Nvolumes, cVol, Vol = calc_mesh_vol()
+    #tempo gasto
+    timeMeshD = timer()
+    WallTimeMesh = timeMeshD - timeMeshB
+    print ('Leitura da malha terminada em %f segundos.' % WallTimeMesh)
+    print ('-----------------------------------------------------------------')
+    ## -- Leitura das condições de contorno
+    print('Lendo condições de contorno...')
+    timeBCB = timer()
+    ## -- Computa infos de condicoes de contorno
+    NameBCs, TipoBCs, nFaces, startFace = read_bcs_mesh()
+    timeBCD = timer()
+    BCTime = timeBCD - timeBCB
+    print ('Leitura das condições de contorno terminada em %f segundos.' % BCTime)
+    print ('-----------------------------------------------------------------')
+    #=============================================================================#
+    ## -- Cálculo da qualidade da malha
+    print ('Calculando métricas de qualidade da malha inicial...')
+    QualityB = timer()
+    dirFinalscalar = str(tinitial)
+    avg_ortho, min_ortho = quality()
+    write_scalar(dirFinalscalar, scalar, min_ortho)
+    QualityD = timer()
+    QualityTime = QualityD - QualityB
+    print ('Métricas calculadas em %f segundos.' % QualityTime)
+    print ('-----------------------------------------------------------------')
+    #=============================================================================#
+    #=============================================================================#
+    ### SOLUÇÃO DA EQUAÇÃO DE DIFUSÃO
+    print('Resolvendo o sistema linear...')
+    timeSolB = timer()
+    ResultadoFinal = np.zeros([Npoints,3])#inicializando o vetor resultado
+    StartTimeSisLin = timer()
+    for dim in range(3): #loop em 3D
+        A, Su = solucao() #matriz dos coeficientes
+        Solucao = bicg(A, Su) #Solucao = bicgstab(A, Su) #alternativa
+        Output = Solucao[0] #ignorando uma parte da solução
+        ResultadoFinal[:,dim]=interpolator_corrector() #interpolando e corrigindo o resultado
+    timeSolD = timer()
+    timeSol = timeSolD - timeSolB
+    print ('Sistema linear resolvido em %f segundos.' % timeSol)
+    print ('-----------------------------------------------------------------')
+    #=============================================================================#
+    ## -- Escrita do arquivo de saída
+    print ('Exportanto resultados...')
+    ExportB = timer()
+    exportar = points + ResultadoFinal
+    write_OF(dirFinal,'points', exportar)      
+    ExportD = timer()
+    ExportTime = ExportD - ExportB
+    print ('Resultados exportados em %f segundos.' % ExportTime)
+    print ('-----------------------------------------------------------------')
+    #=============================================================================#
+    #=============================================================================#
+    ### ATUALIZAÇÃO DAS REFERÊNCIAS
+    tinitial = tnow    
+    tnow = tinitial + dt
+    dirInicial = str(tinitial)
+    dirFinalr = str(tnow) + '/polyMesh'
+    dirMalha = 'constant/polyMesh'
+    dirInicial ='./' + dirInicial + '/' + CI
+    dirFinal = './' + dirFinalr + '/'
+    dirMalhaBoundary = './' + dirMalha +'/boundary'
+    dirMalhaPoints = './' + str(tinitial) + '/polyMesh/points'
+    dirMalhaFaces = './' + dirMalha +'/faces'
+    dirMalhaOwner = './' + dirMalha +'/owner'
+    dirMalhaNeighbour = './' + dirMalha +'/neighbour'
+    #=============================================================================#
+    #=============================================================================#
+    #fim do while
+### LEITURA DA MALHA E CÁLCULOS DA MALHA
 ## -- Computa nós da malha
-print('Lendo arquivo de malha...')
+print('Lendo último arquivo de malha...')
 timeMeshB = timer()
 points, Npoints = read_file(dirMalhaPoints)
 points = np.asarray(points);points = points.astype(np.float)
 #=============================================================================#
 ## -- Computa faces da malha
-faces, Nfaces = read_file(dirMalhaFaces)
-
+faces, Nfaces = read_file(dirMalhaFaces)  
 for i in range(len(faces)): # necessario as vezes...
     faces[i] = np.array(faces[i])
     faces[i] = faces[i].astype(np.int)
@@ -383,47 +595,20 @@ Nvolumes, cVol, Vol = calc_mesh_vol()
 #tempo gasto
 timeMeshD = timer()
 WallTimeMesh = timeMeshD - timeMeshB
-print ('Leitura da malha terminada em %f segundos.' % WallTimeMesh)
+##=============================================================================#
+## -- Cálculo da qualidade da malha
+print ('Calculando métricas de qualidade da malha...')
+QualityB = timer()
+dirFinalscalar = str(tinitial)
+avg_ortho, min_ortho = quality()
+write_scalar(dirFinalscalar, scalar, min_ortho)
+QualityD = timer()
+QualityTime = QualityD - QualityB
+print ('Métricas calculadas em %f segundos.' % QualityTime)
 print ('-----------------------------------------------------------------')
 #=============================================================================#
 #=============================================================================#
-### CONDIÇÕES DE CONTORNO
-print('Lendo condições de contorno...')
-timeBCB = timer()
-## -- Computa infos de condicoes de contorno
-NameBCs, TipoBCs, nFaces, startFace = read_bcs_mesh()
-timeBCD = timer()
-BCTime = timeBCD - timeBCB
-print ('Leitura das condições de contorno terminada em %f segundos.' % BCTime)
-print ('-----------------------------------------------------------------')
-#=============================================================================#
-#=============================================================================#
-### SOLUÇÃO DA EQUAÇÃO DE DIFUSÃO
-print('Resolvendo o sistema linear...')
-timeSolB = timer()
-ResultadoFinal = np.zeros([Npoints,3])#inicializando o vetor resultado
-StartTimeSisLin = timer()
-for dim in range(3): #loop em 3D
-    A, Su = solucao() #matriz dos coeficientes
-    Solucao = bicg(A, Su) #Solucao = bicgstab(A, Su) #alternativa
-    Output = Solucao[0] #ignorando uma parte da solução
-    ResultadoFinal[:,dim]=interpolator_corrector() #interpolando e corrigindo o resultado
-timeSolD = timer()
-timeSol = timeSolD - timeSolB
-print ('Sistema linear resolvido em %f segundos.' % timeSol)
-print ('-----------------------------------------------------------------')
-#=============================================================================#
-## -- Escrita do arquivo de saída
-print ('Exportanto resultados...')
-ExportB = timer()
-exportar = points + ResultadoFinal
-write_OF('points', exportar)      
-ExportD = timer()
-ExportTime = ExportD - ExportB
-print ('Resultados exportados em %f segundos.' % ExportTime)
-print ('-----------------------------------------------------------------')
-#=============================================================================#
-## -- Mensagem de aviso de fim de código
+### FIM DO CÓDIGO
 TimeFinal = timer()
 WallTimeTot = TimeFinal - StartTimeTot
 print ('Código finalizado em %f segundos.' % WallTimeTot)

@@ -11,33 +11,43 @@ FoamFile
     format      ascii;
     class       volVectorField;
     location    "0";
-    object      T;
+    object      deformation125;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 dimensions      [0 1 0 0 0 0 0];
 
-internalField   uniform 0;
+internalField   uniform (0 0 0);
 
 boundaryField
 {
-    Out
+    TopWall
     {
         type            fixedValue;
-        value		uniform 1;
+        value           uniform (.001 0 0);
+
     }
-    frontAndBack
+    BottomWall
     {
-        type            empty;
+	type            fixedValue;
+        value           uniform (0 0 0);
+
     }
-    topAndBottom
+    NorthWall
     {
-        type            empty;
+	type            empty;
     }
-    left
+    SouthWall
     {
-        type            fixedValue;
-        value		uniform 0;
+	type            empty;
+    }
+    WestWall
+    {
+	type            empty;
+    }
+    EastWall
+    {
+	type            empty;
     }
 }
 
