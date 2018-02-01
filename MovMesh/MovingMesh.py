@@ -18,7 +18,8 @@ np.set_printoptions(threshold=sys.maxint)
 # --------------------- INPUTS E SELEÇÕES NECESSÁRIAS ------------------------#
 #==============================================================================
 LaplacianScheme = 'linear'
-gamma = 0.1 # RIGIDEZ DA MALHA
+gamma = 1000000 # RIGIDEZ DA MALHA
+print(gamma)
 CI='deformation125' #condições iniciais
 scalar = 'quality'
 tinitial = 0
