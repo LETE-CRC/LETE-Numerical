@@ -47,7 +47,10 @@ for i,v in enumerate(vel):
 
 # -----------------------------------------------------------------------------
 # - artificial g
-gl = accel+9.81
+''' Supondo gravidade no sentido -Y
+    Caso elevador subindo: - accel
+    Caso elevador descendo: + accel '''
+gl = -9.81 + accel
 gravity = np.column_stack((time, gl))
 
 # -----------------------------------------------------------------------------
